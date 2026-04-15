@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import useStore from '../store/useStore';
-import { Trash2, Check, X, Plus } from 'lucide-react';
+import { Trash2, Check, Plus, ChevronDown, ChevronUp } from 'lucide-react';
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Brush } from 'recharts';
 
 export default function HabitManagement() {
   const habits = useStore(state => state.habits);
@@ -11,6 +12,7 @@ export default function HabitManagement() {
 
   const [newHabit, setNewHabit] = useState('');
   const [activeModal, setActiveModal] = useState(null); // null | { id, hasRecords }
+  const [expandedHabitId, setExpandedHabitId] = useState(null);
 
   const handleAdd = (e) => {
     e.preventDefault();
@@ -20,7 +22,8 @@ export default function HabitManagement() {
     }
   };
 
-  const handleDeleteRequest = (id) => {
+  const handleDeleteRequest = (e, id) => {
+    e.stopPropagation(); // prevent expanding the row
     // Check if habit has any records
     let hasRecords = false;
     for (const dateStr in records) {
@@ -42,14 +45,83 @@ export default function HabitManagement() {
     setActiveModal(null);
   };
 
+  const toggleExpand = (id) => {
+    setExpandedHabitId(prev => (prev === id ? null : id));
+  };
+
+  const expandedHabitData = useMemo(() => {
+    if (!expandedHabitId) return [];
+    
+    // get all dates from records
+    const dates = Object.keys(records).sort(); // YYYY-MM-DD sorted alphabetically works as chronologically
+    const data = [];
+    
+    for (const dateStr of dates) {
+      const rec = records[dateStr][expandedHabitId];
+      if (rec) {
+        data.push({
+          date: new Date(dateStr).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' }),
+          score: rec.skipped ? 0 : rec.score
+        });
+      }
+    }
+    return data;
+  }, [expandedHabitId, records]);
+
   const activeHabits = habits.filter(h => !h.completed);
   const completedHabits = habits.filter(h => h.completed);
+
+  // Render a specific habit row
+  const renderHabitRow = (h, isCompleted) => {
+    const isExpanded = expandedHabitId === h.id;
+    return (
+      <div key={h.id} className="glass" style={{ display: 'flex', flexDirection: 'column', padding: '16px', opacity: isCompleted ? 0.6 : 1, transition: 'var(--transition)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }} onClick={() => toggleExpand(h.id)}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '1.1rem', textDecoration: isCompleted ? 'line-through' : 'none' }}>{h.title}</span>
+            {isExpanded ? <ChevronUp size={16} color="var(--text-muted)" /> : <ChevronDown size={16} color="var(--text-muted)" />}
+          </div>
+          
+          <button 
+            onClick={(e) => isCompleted ? e.stopPropagation() : handleDeleteRequest(e, h.id)}
+            style={{ padding: '8px', zIndex: 2 }}
+          >
+            {isCompleted ? <Check size={20} color="var(--success)" /> : <Trash2 size={20} color="var(--danger)" />}
+          </button>
+        </div>
+
+        {/* Chart View */}
+        {isExpanded && (
+          <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border-color)', animation: 'fadeIn 0.3s' }}>
+            {expandedHabitData.length > 0 ? (
+              <div style={{ minHeight: '220px', width: '100%' }}>
+                <ResponsiveContainer width="100%" height={220}>
+                  <LineChart data={expandedHabitData} margin={{ top: 5, right: 20, bottom: 5, left: -20 }}>
+                    <XAxis dataKey="date" stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
+                    <YAxis stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} domain={[0, 10]} />
+                    <Tooltip 
+                      contentStyle={{ background: 'var(--bg-color)', border: '1px solid var(--border-color)', borderRadius: '8px' }}
+                      itemStyle={{ color: 'var(--primary)' }}
+                    />
+                    <Line type="monotone" dataKey="score" stroke="var(--primary)" strokeWidth={3} dot={{ fill: 'var(--bg-color)', stroke: 'var(--primary)', strokeWidth: 2, r: 4 }} activeDot={{ r: 6, fill: 'var(--primary)' }} />
+                    <Brush dataKey="date" height={30} stroke="var(--border-color)" fill="var(--bg-color)" travellerWidth={10} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', textAlign: 'center', padding: '16px 0' }}>아직 기록된 점수가 없습니다.</p>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
       <header>
         <h1 style={{ fontSize: '1.5rem', marginBottom: '4px' }}>습관 관리</h1>
-        <p style={{ color: 'var(--text-muted)' }}>새로운 다짐을 추가하거나 수정하세요.</p>
+        <p style={{ color: 'var(--text-muted)' }}>새로운 다짐을 추가하거나 흐름을 확인하세요.</p>
       </header>
 
       <form onSubmit={handleAdd} style={{ display: 'flex', gap: '8px' }}>
@@ -69,29 +141,14 @@ export default function HabitManagement() {
         {activeHabits.length === 0 ? (
           <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>현재 활성화된 습관이 없습니다.</p>
         ) : (
-          activeHabits.map(h => (
-            <div key={h.id} className="glass" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px' }}>
-              <span style={{ fontSize: '1.1rem' }}>{h.title}</span>
-              <button 
-                onClick={() => handleDeleteRequest(h.id)}
-                style={{ color: 'var(--danger)', padding: '8px' }}
-              >
-                <Trash2 size={20} />
-              </button>
-            </div>
-          ))
+          activeHabits.map(h => renderHabitRow(h, false))
         )}
       </div>
 
       {completedHabits.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <h3 style={{ fontSize: '1.1rem', marginTop: '24px' }}>완성된 다짐 (몸에 밴 습관)</h3>
-          {completedHabits.map(h => (
-            <div key={h.id} className="glass" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', opacity: 0.6 }}>
-              <span style={{ fontSize: '1.1rem', textDecoration: 'line-through' }}>{h.title}</span>
-              <Check size={20} color="var(--success)" />
-            </div>
-          ))}
+          {completedHabits.map(h => renderHabitRow(h, true))}
         </div>
       )}
 
